@@ -10,7 +10,7 @@
 
 letter [a-zA-Z]
 digit [0-9]
-id {letter}+({letter}|{digit}|_)*
+id {letter}+({letter}|{digit})*
 number {digit}+
 ws [\t\40]+
 sign [+-]?
@@ -67,8 +67,8 @@ sign [+-]?
 "continue"	{ printf("%s \t CONT\n", yytext); }
 "break"		{ printf("%s \t BREAK\n", yytext); }
 
-{sign}?{digit}+					{ printf("%s \t I_CONST\n", yytext); }
-{sign}?{digit}+"."{digit}+		{ printf("%s \t F_CONST\n", yytext); }	
+{digit}+					{ printf("%s \t I_CONST\n", yytext); }
+{digit}+"."{digit}+		{ printf("%s \t F_CONST\n", yytext); }	
 {id}							{ printf("%s \t ID\n", yytext); }
 
 \"(\\.|[^"\\])*\"		{   printf("%c \t QUOTA\n", yytext[0]);
