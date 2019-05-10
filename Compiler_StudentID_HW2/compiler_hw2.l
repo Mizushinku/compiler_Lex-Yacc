@@ -94,8 +94,8 @@ id			{letter}+({letter}|{digit})*
 "return"    { CONCAT return RET; }
 
  /* String Constant */
-\"				        { CONCAT BEGIN STRING_STATE; return QUO; }
-<STRING_STATE>\"		{ CONCAT BEGIN INITIAL; return QUO; }
+\"				        { CONCAT BEGIN STRING_STATE; }
+<STRING_STATE>\"		{ CONCAT BEGIN INITIAL; }
 <STRING_STATE>[^"]*		{ CONCAT return STRING_CONST; }
 
  /* Number Constant */

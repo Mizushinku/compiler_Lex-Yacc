@@ -45,6 +45,7 @@ void dump_symbol();
 
 /* Nonterminal with return, which need to sepcify type */
 //%type <f_val> stat
+//%type <string> string_with_quo
 
 /* Yacc will start at this nonterminal */
 %start program
@@ -53,30 +54,163 @@ void dump_symbol();
 %%
 
 program
-    : program stat
+    : program external_things
     |
 ;
 
-stat
+external_things
     : declaration
+    | function_def
 ;
 
 declaration
-    : type ID '=' initializer SEMICOLON
-    | type ID SEMICOLON
+    : type init_declaration_list SEMICOLON
 ;
 
-initializer
-    : I_CONST
+function_def
+    : SEMICOLON
 ;
 
-/* actions can be taken when meet the token or rule */
+init_declaration_list
+    : init_declaration
+    | init_declaration_list ',' init_declaration
+;
+
+init_declaration
+    : declarator '=' initializer
+    | declarator
+;
+
+declarator
+    : ID
+    | '(' declarator ')'
+    | declarator '(' param_list ')'
+    | declarator '(' ')'
+    | declarator '(' id_list ')'
+;
+
+param_list
+    : type declarator
+    | param_list ',' type declarator
+;
+
+id_list
+    : ID
+    | id_list ',' ID
+;
+
 type
     : INT
     | FLOAT
     | BOOL
     | STRING
     | VOID
+;
+
+initializer
+    : assigment_exp
+;
+
+assigment_exp
+    : conditional_exp
+    | unary_exp asgn_operator assigment_exp
+;
+
+conditional_exp
+    : logical_or_exp
+;
+
+logical_or_exp
+    : logical_and_exp
+    | logical_or_exp OR logical_and_exp
+;
+
+logical_and_exp
+    : equality_exp
+    | logical_and_exp AND equality_exp
+;
+
+equality_exp
+    : relational_exp
+    | equality_exp EQ relational_exp
+    | equality_exp NE relational_exp
+;
+
+relational_exp
+    : additive_exp
+    | relational_exp MT additive_exp
+    | relational_exp LT additive_exp
+    | relational_exp MTE additive_exp
+    | relational_exp LTE additive_exp
+;
+
+additive_exp
+    : multiplicative_exp
+    | additive_exp '+' multiplicative_exp
+    | additive_exp '-' multiplicative_exp
+;
+
+multiplicative_exp
+    : unary_exp
+    | multiplicative_exp '*' unary_exp
+    | multiplicative_exp '/' unary_exp
+    | multiplicative_exp '&' unary_exp
+;
+
+unary_exp
+    : postfix_exp
+    | INC unary_exp
+    | DEC unary_exp
+    | unary_operator unary_exp
+;
+
+unary_operator
+    : '+'
+    | '-'
+    | NOT
+;
+
+postfix_exp
+    : primary_exp
+    | postfix_exp '[' expression ']'
+    | postfix_exp '(' ')'
+    | postfix_exp '(' argument_exp_list ')'
+    | postfix_exp INC
+    | postfix_exp DEC
+;
+
+primary_exp
+    : ID
+    | constant
+    | '(' expression ')'
+;
+
+expression
+    : assigment_exp
+    | expression ',' assigment_exp
+;
+
+constant
+    : I_CONST
+    | F_CONST
+    | STRING_CONST
+    | TRUE
+    | FALSE
+;
+
+
+argument_exp_list
+    : assigment_exp
+    | argument_exp_list ',' assigment_exp
+;
+
+asgn_operator
+    : '='
+    | MULASGN
+    | DIVASGN
+    | MODASGN
+    | ADDASGN
+    | SUBASGN
 ;
 
 %%
