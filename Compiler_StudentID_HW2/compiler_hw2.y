@@ -4,6 +4,7 @@
 
 extern int yylineno;
 extern int yylex();
+void yyerror(char *);
 extern char* yytext;   // Get current token from lex
 extern char buf[256];  // Get current code line from lex
 
@@ -26,7 +27,7 @@ void dump_symbol();
 
 /* Token without return */
 %token PRINT 
-%token IF ELSE FOR WHILE
+%token IF FOR WHILE
 %token ID SEMICOLON QUO
 %token INT FLOAT STRING BOOL VOID
 %token INC DEC
@@ -35,6 +36,10 @@ void dump_symbol();
 %token AND OR NOT
 %token TRUE FALSE
 %token RET
+
+/* for if-else shift/reduce conflict */
+%nonassoc NO_ELSE
+%nonassoc ELSE
 
 
 
@@ -54,8 +59,8 @@ void dump_symbol();
 %%
 
 program
-    : program external_things
-    |
+    : external_things
+    | program external_things
 ;
 
 external_things
@@ -68,7 +73,13 @@ declaration
 ;
 
 function_def
-    : SEMICOLON
+    : type declarator declaration_list compound_stat
+    | type declarator compound_stat
+;
+
+declaration_list
+    : declaration
+    | declaration_list declaration
 ;
 
 init_declaration_list
@@ -154,7 +165,7 @@ multiplicative_exp
     : unary_exp
     | multiplicative_exp '*' unary_exp
     | multiplicative_exp '/' unary_exp
-    | multiplicative_exp '&' unary_exp
+    | multiplicative_exp '%' unary_exp
 ;
 
 unary_exp
@@ -211,6 +222,53 @@ asgn_operator
     | MODASGN
     | ADDASGN
     | SUBASGN
+;
+
+statement
+    : compound_stat
+    | expression_stat
+    | selection_stat
+    | iteration_stat
+    | jump_stat
+    | print_stat
+;
+
+compound_stat
+    : '{' '}'
+    | '{' block_item_list '}'
+;
+
+block_item_list
+    : block_item
+    | block_item_list block_item
+;
+
+block_item
+    : declaration
+    | statement
+;
+
+expression_stat
+    : SEMICOLON
+    | expression SEMICOLON
+;
+
+selection_stat
+    : IF '(' expression ')' statement ELSE statement
+    | IF '(' expression ')' statement %prec NO_ELSE
+;
+
+iteration_stat
+    : WHILE '(' expression ')' statement
+;
+
+jump_stat
+    : RET SEMICOLON
+    | RET expression SEMICOLON
+;
+
+print_stat
+    : PRINT '(' expression ')' SEMICOLON
 ;
 
 %%
