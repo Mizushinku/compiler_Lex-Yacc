@@ -11,10 +11,14 @@
 #define RCB '}'
 
 extern YYSTYPE yylval; //YYSTYPE
+extern int scope;
+extern void dump_symbol(int, int);
 char buf[BUF_SIZE];
 
 /* This macro is used to record code line */
 #define CONCAT { strncat(buf, yytext, BUF_SIZE - strlen(buf) - 1); }
+
+int end_of_scope = 0;
 
 %}
 
@@ -65,8 +69,8 @@ id			{letter}+({letter}|{digit})*
  /* Delimiters */
 "("		{ CONCAT return LB; } // LB = '('
 ")"		{ CONCAT return RB; } // RB = ')'
-"{"		{ CONCAT return LCB; } // LCB = '{'
-"}"		{ CONCAT return RCB; } // RCB = '}'
+"{"		{ CONCAT ++scope; return LCB; } // LCB = '{'
+"}"		{ CONCAT --scope; end_of_scope = 1; return RCB; } // RCB = '}'
 "["		{ CONCAT return '['; }
 "]"		{ CONCAT return ']'; }
 ","		{ CONCAT return ','; }
@@ -118,7 +122,14 @@ id			{letter}+({letter}|{digit})*
  /* others */
 
 [;]         { CONCAT return SEMICOLON; }
-[\n]       { printf("%d: %s\n", yylineno, buf); memset(buf, 0, BUF_SIZE); }
+[\n]       {
+        printf("%d: %s\n", yylineno, buf);
+        memset(buf, 0, BUF_SIZE);
+        if(end_of_scope == 1) {
+            dump_symbol(scope+1, 0);
+            end_of_scope = 0;
+        }
+    }
 [ \t]		{ CONCAT } /* Ignore */
 [^ \t\n] 	{ CONCAT } /* Ignore other charactor sets */
 
