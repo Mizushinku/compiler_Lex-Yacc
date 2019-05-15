@@ -276,7 +276,7 @@ function_call_exp
 ;
 
 function_ID
-    : ID { if(has_error == 0) lookup_symbol_by_name(yytext, 2); }
+    : ID { if(has_error == 0) lookup_symbol_by_name($1, 2); }
 ;
 
 primary_exp
