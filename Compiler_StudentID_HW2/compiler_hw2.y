@@ -21,6 +21,12 @@ typedef struct TABLE_ENTYR {
     struct TABLE_ENTYR *next;
 }ste_t;
 
+typedef struct STE_STACK {
+    ste_t *head;
+    ste_t *curn;
+    void (*push)(int);
+}ste_stack_t;
+
 /* Symbol table function - you can add new function if needed. */
 int lookup_symbol();
 void create_symbol(int, int);
@@ -28,6 +34,7 @@ void insert_symbol(ste_t *);
 void dump_symbol(int, int);
 void add_attri();
 void clear_tmp(int);
+void ste_stack_push(int);
 
 
 // define enum for entry data 'kind' and 'type'
@@ -49,6 +56,7 @@ enum E_KIND kind_num_p = init_kind;
 enum E_TYPE type_num_p = init_type;
 
 ste_t *table_heads[10] = {NULL};
+//te_stack_t stack;
 
 %}
 
@@ -109,19 +117,14 @@ declaration
         if(kind_num == var)
             create_symbol(scope, 0);
         clear_tmp(0);
-        if(table_heads[scope+1] != NULL) {
-            dump_symbol(scope+1, 1);
-        }
     }
+    | type declarator '(' ')' SEMICOLON { clear_tmp(0); }
+    | type declarator '(' param_list ')' SEMICOLON { clear_tmp(0); dump_symbol(scope+1, 1); }
 ;
 
 function_def
-    : type declarator declaration_list compound_stat
-    | type declarator compound_stat {
-        if(kind_num == func)
-            create_symbol(scope, 0);
-        clear_tmp(0);
-    }
+    : type declarator_2 declaration_list compound_stat
+    | type declarator_2 compound_stat
 ;
 
 declaration_list
@@ -145,9 +148,12 @@ declarator
         kind_num = var;
     }
     | '(' declarator ')'
-    | declarator '(' param_list ')' { kind_num = func; }
-    | declarator '(' ')' { kind_num = func; }
     | declarator '(' id_list ')'
+;
+
+declarator_2
+    : declarator '(' ')' { kind_num = func; create_symbol(scope-1, 0); clear_tmp(0); }
+    | declarator '(' param_list ')' { kind_num = func; create_symbol(scope-1, 0); clear_tmp(0); }
 ;
 
 param_list
@@ -161,6 +167,10 @@ id_list
 ;
 
 type
+    : types
+;
+
+types
     : INT    { type_num = e_int; }
     | FLOAT  { type_num = e_float; }
     | BOOL   { type_num = e_bool; }
@@ -336,9 +346,24 @@ int main(int argc, char** argv)
 {
     yylineno = 0;
 
+    /*
+    stack.head = NULL;
+    stack.curn = NULL;
+    stack.push = ste_stack_push;
+    */
+
     yyparse();
     dump_symbol(scope, 0);
 	printf("\nTotal lines: %d \n",yylineno);
+
+    /*
+    printf("\nStack :\t--------\n\n");
+    ste_t *it = stack.head;
+    while(it != NULL) {
+        printf("type = %-10s, name = %-10s, scope = %-5d\n", it->type, it->name, it->scope);
+        it = it->next;
+    }
+    */
 
     return 0;
 }
@@ -460,3 +485,20 @@ void clear_tmp(int mod)
         type_num_p = init_type;
     }
 }
+
+/*
+void ste_stack_push(int n)
+{
+    ste_t *ste = malloc(sizeof(ste_t));
+    strcpy(ste->type, type_str[n]);
+    ste->scope = scope;
+    ste->next = NULL;
+    if(stack.head == NULL) {
+        stack.head = ste;
+        stack.curn = stack.head;
+    }else {
+        stack.curn->next = ste;
+        stack.curn = stack.curn->next;
+    }
+}
+*/
