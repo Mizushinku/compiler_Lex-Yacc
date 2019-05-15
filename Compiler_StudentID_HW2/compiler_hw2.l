@@ -12,7 +12,10 @@
 
 extern YYSTYPE yylval; //YYSTYPE
 extern int scope;
+extern int has_error;
+extern char err_msg[50];
 extern void dump_symbol(int, int);
+extern void yyerror(char *);
 char buf[BUF_SIZE];
 
 /* This macro is used to record code line */
@@ -117,13 +120,16 @@ id			{letter}+({letter}|{digit})*
 \/\/.*	{ CONCAT }
 
  /* Variable ID */
- {id}       { CONCAT return ID; }
+ {id}       { CONCAT yylval.curID = strdup(yytext); return ID; }
 
  /* others */
 
 [;]         { CONCAT return SEMICOLON; }
 [\n]       {
         printf("%d: %s\n", yylineno, buf);
+        if(has_error) {
+            yyerror(err_msg);
+        }
         memset(buf, 0, BUF_SIZE);
         if(end_of_scope == 1) {
             dump_symbol(scope+1, 0);
