@@ -24,11 +24,23 @@ typedef struct TABLE_ENTYR {
     struct TABLE_ENTYR *next;
 }ste_t;
 
-typedef struct STE_STACK {
+// define j_stack item and stack
+/*
+typedef struct J_ITEM {
+    union
+    {
+        int i_data;
+    };
+}j_item_t;
+
+typedef struct J_STACK {
     ste_t *head;
     ste_t *curn;
     void (*push)(int);
-}ste_stack_t;
+}j_stack_t;
+*/
+
+
 
 /* Symbol table function - you can add new function if needed. */
 int lookup_symbol(ste_t *);
@@ -38,11 +50,12 @@ void insert_symbol(ste_t *);
 void dump_symbol(int, int);
 void add_attri();
 void clear_tmp(int);
-void ste_stack_push(int);
 
 //Jasmin Functions
 void dcl_var(int, int, char*);
 void j_func_def();
+/*void j_stack_push(int);*/
+
 
 
 //Jasmin things
@@ -320,11 +333,24 @@ expression
 ;
 
 constant
-    : I_CONST { if(scope == 0) g_int = $1; }
-    | F_CONST { if(scope == 0) g_float = $1; }
-    | STRING_CONST { if(scope == 0) strcpy(g_string, $1); }
-    | TRUE { if(scope == 0) g_bool = 1; }
-    | FALSE { if(scope == 0) g_bool = 0; }
+    : I_CONST {
+        if(scope == 0) g_int = $1;
+        else {
+            fprintf(fp, "    ldc %d\n", $1);
+        }
+    }
+    | F_CONST {
+        if(scope == 0) g_float = $1;
+    }
+    | STRING_CONST {
+        if(scope == 0) strcpy(g_string, $1);
+    }
+    | TRUE {
+        if(scope == 0) g_bool = 1;
+    }
+    | FALSE {
+        if(scope == 0) g_bool = 0;
+    }
 ;
 
 
@@ -386,7 +412,11 @@ jump_stat
 ;
 
 print_stat
-    : PRINT '(' expression ')' SEMICOLON
+    : PRINT '(' expression ')' SEMICOLON {
+        fprintf(fp, "    getstatic java/lang/System/out Ljava/io/PrintStream;\n");
+        fprintf(fp, "    swap\n");
+        fprintf(fp, "    invokevirtual java/io/PrintStream/println(I)V\n");
+    }
 ;
 
 %%
@@ -644,7 +674,7 @@ void j_func_def()
 }
 
 /*
-void ste_stack_push(int n)
+void j_stack_push(int n)
 {
     ste_t *ste = malloc(sizeof(ste_t));
     strcpy(ste->type, type_str[n]);
