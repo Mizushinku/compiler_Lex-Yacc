@@ -44,7 +44,7 @@ typedef struct J_STACK {
 
 /* Symbol table function - you can add new function if needed. */
 int lookup_symbol(ste_t *);
-void lookup_symbol_by_name(char *, int);
+int lookup_symbol_by_name(char *, int);
 void create_symbol(int, int);
 void insert_symbol(ste_t *);
 void dump_symbol(int, int);
@@ -54,6 +54,7 @@ void clear_tmp(int);
 //Jasmin Functions
 void dcl_var(int, int, char*);
 void j_func_def();
+int j_lookup_symbol(char *);
 /*void j_stack_push(int);*/
 
 
@@ -64,6 +65,7 @@ int g_int = 0;
 float g_float = 0.0;
 int g_bool = 0;
 char g_string[100] = {};
+int digit_for_type = 0;
 
 
 // define enum for entry data 'kind' and 'type'
@@ -318,11 +320,35 @@ function_call_exp
 ;
 
 function_ID
-    : ID { if(has_error == 0) lookup_symbol_by_name($1, 2); }
+    : ID {
+        if(has_error == 0) {
+            int id_type = lookup_symbol_by_name($1, 2);
+        }
+    }
 ;
 
 primary_exp
-    : ID { if(has_error == 0) lookup_symbol_by_name($1, 1); }
+    : ID {
+        if(has_error == 0) {
+            int id_type = lookup_symbol_by_name($1, 1);
+            if(id_type >= 0) {
+                digit_for_type *= 10;
+                digit_for_type += id_type + 1;
+                int stack_num = j_lookup_symbol($1);
+                if(stack_num < 0) {
+                    fprintf(fp, "    getstatic compiler_hw3/%s %s\n", $1, jtype[id_type]);
+                }
+                else {
+                    if(id_type == e_float) {
+                        fprintf(fp, "    fload %d\n", stack_num);
+                    }
+                    else {
+                        fprintf(fp, "    iload %d\n", stack_num);
+                    }
+                }
+            }
+        }
+    }
     | constant
     | '(' expression ')'
 ;
@@ -337,19 +363,41 @@ constant
         if(scope == 0) g_int = $1;
         else {
             fprintf(fp, "    ldc %d\n", $1);
+            digit_for_type *= 10;
+            digit_for_type += 1;
         }
     }
     | F_CONST {
         if(scope == 0) g_float = $1;
+        else {
+            fprintf(fp, "    ldc %f\n", $1);
+            digit_for_type *= 10;
+            digit_for_type += 2;
+        }
     }
     | STRING_CONST {
         if(scope == 0) strcpy(g_string, $1);
+        else {
+            fprintf(fp, "    ldc \"%s\"\n", $1);
+            digit_for_type *= 10;
+            digit_for_type += 4;
+        }
     }
     | TRUE {
         if(scope == 0) g_bool = 1;
+        else {
+            fprintf(fp, "    ldc 1\n");
+            digit_for_type *= 10;
+            digit_for_type += 3;
+        }
     }
     | FALSE {
         if(scope == 0) g_bool = 0;
+        else {
+            fprintf(fp, "    ldc 0\n");
+            digit_for_type *= 10;
+            digit_for_type += 3;
+        }
     }
 ;
 
@@ -413,9 +461,11 @@ jump_stat
 
 print_stat
     : PRINT '(' expression ')' SEMICOLON {
+        int digit = digit_for_type % 10 - 1;
+        digit_for_type /= 10;
         fprintf(fp, "    getstatic java/lang/System/out Ljava/io/PrintStream;\n");
         fprintf(fp, "    swap\n");
-        fprintf(fp, "    invokevirtual java/io/PrintStream/println(I)V\n");
+        fprintf(fp, "    invokevirtual java/io/PrintStream/println(%s)V\n", jtype[digit]);
     }
 ;
 
@@ -530,12 +580,16 @@ int lookup_symbol(ste_t *ste)
     return 0;
 }
 
-void lookup_symbol_by_name(char *sid, int mod) {
+int lookup_symbol_by_name(char *sid, int mod) {
     for(int i = scope; i >= 0; --i) {
         ste_t *it = table_heads[i];
         while(it != NULL) {
             if(strcmp(sid, it->name) == 0) {
-                return;
+                for(int j = 0; j < 5; ++j) {
+                    if(strcmp(it->type, type_str[j]) == 0) {
+                        return j;
+                    }
+                }
             }
             it = it->next;
         }
@@ -548,7 +602,21 @@ void lookup_symbol_by_name(char *sid, int mod) {
     }
     strcpy(err_msg, serr_str[err_num]);
     strcat(err_msg, sid);
-    return;
+    return -1;
+}
+
+int j_lookup_symbol(char *sid) {
+    int stack_num, count = -1;
+    for(int s = 0; s <= scope; ++s) {
+        ste_t *it = table_heads[s];
+        while(it != NULL) {
+            if(s > 0) ++count;
+            if(strcmp(sid, it->name) == 0)
+                stack_num = count;
+            it = it->next;
+        }
+    }
+    return stack_num;
 }
 
 void dump_symbol(int target, int mod)
