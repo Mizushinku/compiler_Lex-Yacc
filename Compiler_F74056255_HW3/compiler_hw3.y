@@ -55,6 +55,7 @@ void clear_tmp(int);
 void dcl_var(int, int, char*);
 void j_func_def();
 int j_lookup_symbol(char *);
+void j_check_cast(int, int);
 /*void j_stack_push(int);*/
 
 
@@ -65,7 +66,10 @@ int g_int = 0;
 float g_float = 0.0;
 int g_bool = 0;
 char g_string[100] = {};
+
 int digit_for_type = 0;
+int has_init = 0;
+
 
 
 // define enum for entry data 'kind' and 'type'
@@ -159,9 +163,40 @@ declaration
     : type init_declaration_list SEMICOLON {
         if(kind_num == var) {
             create_symbol(scope, 0);
-        }
-        if(scope == 0) {
-            dcl_var(scope, type_num, name_tmp);
+        
+            if(scope == 0) {
+                dcl_var(scope, type_num, name_tmp);
+            }
+            else {
+                int tos_type = type_num;
+                if(has_init == 0) {
+                    if(type_num == e_string) {
+                        fprintf(fp, "    ldc \"\"\n");
+                    }
+                    else {
+                        fprintf(fp, "    ldc 0\n");
+                    }
+                    has_init = 0;
+                }
+                else {
+                    tos_type = digit_for_type % 10 - 1;
+                    digit_for_type /= 10;
+                }
+
+                int stack_num = j_lookup_symbol(name_tmp);
+
+                if(type_num == e_float) {
+                    j_check_cast(type_num, tos_type);
+                    fprintf(fp, "    fstore %d\n", stack_num);
+                }
+                else if(type_num == e_string) {
+                    fprintf(fp, "    astore %d\n", stack_num);
+                }
+                else {
+                    if(type_num == e_int) j_check_cast(type_num, tos_type);
+                    fprintf(fp, "    istore %d\n", stack_num);
+                }
+            }
         }
         clear_tmp(0);
     }
@@ -185,8 +220,8 @@ init_declaration_list
 ;
 
 init_declaration
-    : declarator '=' initializer
-    | declarator
+    : declarator '=' initializer { has_init = 1; }
+    | declarator { has_init = 0; }
 ;
 
 declarator
@@ -341,6 +376,9 @@ primary_exp
                 else {
                     if(id_type == e_float) {
                         fprintf(fp, "    fload %d\n", stack_num);
+                    }
+                    else if(id_type == e_string) {
+                        fprintf(fp, "    aload %d\n", stack_num);
                     }
                     else {
                         fprintf(fp, "    iload %d\n", stack_num);
@@ -738,6 +776,18 @@ void j_func_def()
                 it->name, j_attri_type, j_func_type);
         }
         fprintf(fp, ".limit stack 50\n.limit locals 50\n");
+    }
+}
+
+void j_check_cast(int target_type, int tos_type)
+{
+    if(target_type != tos_type) {
+        if(target_type == e_float && tos_type == e_int) {
+            fprintf(fp, "    i2f\n");
+        }
+        else if(target_type == e_int && tos_type == e_float) {
+            fprintf(fp, "    f2i\n");
+        }
     }
 }
 
