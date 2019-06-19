@@ -56,7 +56,12 @@ void dcl_var(int, int, char*);
 void j_func_def();
 int j_lookup_symbol(char *);
 void j_check_cast(int, int);
-/*void j_stack_push(int);*/
+void j_arithmetic_cast(int*, int*);
+int j_add(int, int);
+int j_sub(int, int);
+int j_mul(int, int);
+int j_div(int, int);
+int j_mod(int, int);
 
 
 
@@ -71,23 +76,27 @@ char g_string[100] = {};
 int digit_for_type = 0;
 int has_init = 0;
 int has_inc_or_dec = 0;
+int is_cur_zero_const = 0;
+
+int asgn_code = -1;
 
 
-
-
-// define enum for entry data 'kind' and 'type'
+// define enum
 enum E_KIND { init_kind = -1, var, func, param };
 enum E_TYPE { init_type = -1, e_int, e_float, e_bool, e_string, e_void };
-enum E_ERRNO { init_errno = -1, uv, uf, rv, rf };
+enum E_ERRNO { init_errno = -1, uv, uf, rv, rf, dz, mf };
+enum E_ASGN { inti_asgn = -1, noma, adda, suba, mula, diva, moda };
 
 // define string which is related to enum
 char *kind_str[3] = { "variable", "function", "parameter" };
 char *type_str[5] = { "int", "float", "bool", "string", "void" };
-char *serr_str[4] = {
+char *serr_str[6] = {
     "Undeclared variable ",
     "Undeclared function ",
     "Redeclared variable ",
-    "Redeclared function "
+    "Redeclared function ",
+    "Divide by zero", 
+    "Mod on float"
 };
 
 int scope = 0, has_error = 0;
@@ -105,6 +114,8 @@ enum E_ERRNO err_num = init_errno;
 
 ste_t *table_heads[10] = {NULL};
 //te_stack_t stack;
+
+
 
 %}
 
@@ -176,14 +187,17 @@ declaration
                     if(type_num == e_string) {
                         fprintf(fp, "    ldc \"\"\n");
                     }
+                    else if(type_num == e_float){
+                        fprintf(fp, "    ldc 0.0\n");
+                    }
                     else {
                         fprintf(fp, "    ldc 0\n");
                     }
-                    has_init = 0;
                 }
                 else {
                     tos_type = digit_for_type % 10 - 1;
                     digit_for_type /= 10;
+                    has_init = 0;
                 }
 
                 int stack_num = j_lookup_symbol(name_tmp);
@@ -282,7 +296,11 @@ type_p
 ;
 
 initializer
-    : assigment_exp
+    : conditional_exp {
+        if(has_inc_or_dec) {
+            has_inc_or_dec = 0;
+        }
+    }
 ;
 
 assigment_exp
@@ -293,7 +311,90 @@ assigment_exp
             digit_for_type /= 10;
         }
     }
-    | unary_exp asgn_operator assigment_exp
+    | ID asgn_operator assigment_exp {
+        if(has_inc_or_dec) {
+            has_inc_or_dec = 0;
+        }
+
+        int id_type = lookup_symbol_by_name($1, 1);
+        int stack_num = j_lookup_symbol($1);
+        int tos_type = digit_for_type % 10 - 1;
+        digit_for_type /= 10;
+
+        if(stack_num < 0) {
+            fprintf(fp, "    getstatic compiler_hw3/%s %s\n", $1, jtype[id_type]);
+        }
+        else {
+            if(id_type == e_float) {
+                fprintf(fp, "    fload %d\n", stack_num);
+            }
+            else if(id_type == e_string) {
+                fprintf(fp, "    aload %d\n", stack_num);
+            }
+            else {
+                fprintf(fp, "    iload %d\n", stack_num);
+            }
+        }
+        fprintf(fp, "    swap\n");
+
+        if(asgn_code == noma) {
+            fprintf(fp, "    swap\n");
+            fprintf(fp, "    pop\n");
+        }
+        else if(asgn_code == adda) {
+            tos_type = j_add(tos_type, id_type);
+        }
+        else if(asgn_code == suba) {
+            tos_type = j_sub(tos_type, id_type);
+        }
+        else if(asgn_code == mula) {
+            tos_type = j_mul(tos_type, id_type);
+        }
+        else if(asgn_code == diva) {
+            if(is_cur_zero_const) {
+                is_cur_zero_const = 0;
+                fprintf(fp, "    pop\n");
+                tos_type = id_type;
+                err_num = dz;
+                strcpy(err_msg, serr_str[err_num]);
+                has_error = 1;
+            }
+            else {
+                tos_type = j_div(tos_type, id_type);
+            }
+        }
+        else if(asgn_code == moda){
+            if(tos_type != e_int || id_type != e_int) {
+                fprintf(fp, "    pop\n");
+                tos_type = id_type;
+                err_num = mf;
+                strcpy(err_msg, serr_str[err_num]);
+                has_error = 1;
+            }
+            else {
+                tos_type = j_mod(tos_type, id_type);
+            }
+        }
+
+        j_check_cast(id_type, tos_type);
+
+        if(stack_num < 0) {
+            fprintf(fp, "    putstatic compiler_hw3/%s %s\n", $1, jtype[id_type]);
+        }
+        else {
+            if(id_type == e_float) {
+                fprintf(fp, "    fstore %d\n", stack_num);
+            }
+            else if(id_type == e_string) {
+                fprintf(fp, "    astore %d\n", stack_num);
+            }
+            else {
+                fprintf(fp, "    istore %d\n", stack_num);
+            }
+        }
+
+        asgn_code = inti_asgn;
+    }
 ;
 
 conditional_exp
@@ -438,6 +539,7 @@ primary_exp
                     }
                 }
             }
+            is_cur_zero_const = 0;
         }
     }
     | constant
@@ -451,19 +553,39 @@ expression
 
 constant
     : I_CONST {
-        if(scope == 0) g_int = $1;
+        if(scope == 0) {
+            if(type_num == e_float) {
+                g_float = (float)$1;
+            }
+            else {
+                g_int = $1;
+            }
+        }
         else {
             fprintf(fp, "    ldc %d\n", $1);
             digit_for_type *= 10;
             digit_for_type += 1;
+            if($1 == 0) {
+                is_cur_zero_const = 1;
+            } else {
+                is_cur_zero_const = 0;
+            }
         }
     }
     | F_CONST {
-        if(scope == 0) g_float = $1;
+        if(scope == 0) {
+            if(type_num == e_int) {
+                g_int = (int)$1;
+            }
+            else {
+                g_float = $1;
+            }
+        }
         else {
             fprintf(fp, "    ldc %f\n", $1);
             digit_for_type *= 10;
             digit_for_type += 2;
+            is_cur_zero_const = 0;
         }
     }
     | STRING_CONST {
@@ -472,6 +594,7 @@ constant
             fprintf(fp, "    ldc \"%s\"\n", $1);
             digit_for_type *= 10;
             digit_for_type += 4;
+            is_cur_zero_const = 0;
         }
     }
     | TRUE {
@@ -480,6 +603,7 @@ constant
             fprintf(fp, "    ldc 1\n");
             digit_for_type *= 10;
             digit_for_type += 3;
+            is_cur_zero_const = 0;
         }
     }
     | FALSE {
@@ -488,6 +612,7 @@ constant
             fprintf(fp, "    ldc 0\n");
             digit_for_type *= 10;
             digit_for_type += 3;
+            is_cur_zero_const = 0;
         }
     }
 ;
@@ -499,12 +624,12 @@ argument_exp_list
 ;
 
 asgn_operator
-    : '='
-    | MULASGN
-    | DIVASGN
-    | MODASGN
-    | ADDASGN
-    | SUBASGN
+    : '=' { asgn_code = noma; }
+    | ADDASGN { asgn_code = adda; }
+    | SUBASGN { asgn_code = suba; }
+    | MULASGN { asgn_code = mula; }
+    | DIVASGN { asgn_code = diva; }
+    | MODASGN { asgn_code = moda; }
 ;
 
 statement
@@ -576,6 +701,12 @@ int main(int argc, char** argv)
 	printf("\nTotal lines: %d \n",yylineno);
 
     fclose(fp);
+
+    printf("\ndigit_for_type = %d\n", digit_for_type);
+    printf("has_init = %d\n", has_init);
+    printf("has_inc_or_dec = %d\n\n", has_inc_or_dec);
+
+
     return 0;
 }
 
@@ -777,9 +908,11 @@ void dcl_var(int s, int t, char *vn)
         if(t == e_int) {
             fprintf(fp, "%d\n", g_int);
             g_int = 0;
+            g_float = 0.0;
         }
         else if(t == e_float) {
             fprintf(fp, "%f\n", g_float);
+            g_int = 0;
             g_float = 0.0;
         }
         else if(t == e_string) {
@@ -843,6 +976,79 @@ void j_check_cast(int target_type, int tos_type)
         }
     }
 }
+
+void j_arithmetic_cast(int *tos_type, int *snd_type)
+{
+    if(*tos_type != *snd_type) {
+        if(*tos_type != e_float) {
+            fprintf(fp, "    i2f\n");
+            *tos_type = e_float;
+        }
+        else {
+            fprintf(fp, "    swap\n");
+            fprintf(fp, "    i2f\n");
+            fprintf(fp, "    swap\n");
+            *snd_type = e_float;
+        }
+    }
+}
+
+int j_add(int tos_type, int snd_type)
+{
+    j_arithmetic_cast(&tos_type, &snd_type);
+    if(tos_type == e_int) {
+        fprintf(fp, "    iadd\n");
+    }
+    else {
+        fprintf(fp, "    fadd\n");
+    }
+    return tos_type;
+}
+
+int j_sub(int tos_type, int snd_type)
+{
+    j_arithmetic_cast(&tos_type, &snd_type);
+    if(tos_type == e_int) {
+        fprintf(fp, "    isub\n");
+    }
+    else {
+        fprintf(fp, "    fsub\n");
+    }
+    return tos_type;
+}
+
+int j_mul(int tos_type, int snd_type)
+{
+    j_arithmetic_cast(&tos_type, &snd_type);
+    if(tos_type == e_int) {
+        fprintf(fp, "    imul\n");
+    }
+    else {
+        fprintf(fp, "    fmul\n");
+    }
+    return tos_type;
+}
+
+int j_div(int tos_type, int snd_type)
+{
+    j_arithmetic_cast(&tos_type, &snd_type);
+    if(tos_type == e_int) {
+        fprintf(fp, "    idiv\n");
+    }
+    else {
+        fprintf(fp, "    fdiv\n");
+    }
+    return tos_type;
+}
+
+int j_mod(int tos_type, int snd_type)
+{
+    if(tos_type == e_int && snd_type == e_int) {
+        fprintf(fp, "    irem\n");
+    }
+    return tos_type;
+}
+
 
 /*
 void j_stack_push(int n)
