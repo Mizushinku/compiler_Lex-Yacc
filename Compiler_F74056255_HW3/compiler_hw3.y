@@ -62,6 +62,7 @@ int j_sub(int, int);
 int j_mul(int, int);
 int j_div(int, int);
 int j_mod(int, int);
+void j_get_2_tos_type(int *, int *);
 
 
 
@@ -77,8 +78,11 @@ int digit_for_type = 0;
 int has_init = 0;
 int has_inc_or_dec = 0;
 int is_cur_zero_const = 0;
+int is_while = 0;
 
 int asgn_code = -1;
+int label_flag = 0;
+int while_label = 0;
 
 
 // define enum
@@ -413,7 +417,33 @@ logical_and_exp
 
 equality_exp
     : relational_exp
-    | equality_exp EQ relational_exp
+    | equality_exp EQ relational_exp {
+        int tos_type, snd_type;
+        j_get_2_tos_type(&tos_type, &snd_type);
+        char mark[8] = {};
+        int cnt;
+        if(is_while) {
+            strcpy(mark, "WE");
+            cnt = while_label;
+        }
+        else {
+            strcpy(mark, "L");
+            cnt = label_flag;
+        }
+        if(tos_type == e_float) {
+            fprintf(fp, "    fcmpl\n");
+            fprintf(fp, "    ifne %s%d\n", mark, cnt);
+        }
+        else {
+            fprintf(fp, "    if_icmpne %s%d\n", mark, cnt);
+        }
+        if(is_while) {
+            is_while = 0;
+            ++while_label;
+        } else {
+            ++label_flag;
+        }
+    }
     | equality_exp NE relational_exp
 ;
 
@@ -427,15 +457,60 @@ relational_exp
 
 additive_exp
     : multiplicative_exp
-    | additive_exp '+' multiplicative_exp
-    | additive_exp '-' multiplicative_exp
+    | additive_exp '+' multiplicative_exp {
+        int tos_type, snd_type;
+        j_get_2_tos_type(&tos_type, &snd_type);
+        digit_for_type *= 10;
+        digit_for_type += j_add(tos_type, snd_type) + 1;
+    }
+    | additive_exp '-' multiplicative_exp {
+        int tos_type, snd_type;
+        j_get_2_tos_type(&tos_type, &snd_type);
+        digit_for_type *= 10;
+        digit_for_type += j_sub(tos_type, snd_type) + 1;
+    }
 ;
 
 multiplicative_exp
     : unary_exp
-    | multiplicative_exp '*' unary_exp
-    | multiplicative_exp '/' unary_exp
-    | multiplicative_exp '%' unary_exp
+    | multiplicative_exp '*' unary_exp {
+        int tos_type, snd_type;
+        j_get_2_tos_type(&tos_type, &snd_type);
+        digit_for_type *= 10;
+        digit_for_type += j_mul(tos_type, snd_type) + 1;
+    }
+    | multiplicative_exp '/' unary_exp {
+        if(is_cur_zero_const) {
+            is_cur_zero_const = 0;
+            fprintf(fp, "    pop\n");
+            digit_for_type /= 10;
+            err_num = dz;
+            strcpy(err_msg, serr_str[err_num]);
+            has_error = 1;
+        }
+        else {
+            int tos_type, snd_type;
+            j_get_2_tos_type(&tos_type, &snd_type);
+            digit_for_type *= 10;
+            digit_for_type += j_div(tos_type, snd_type) + 1;
+        }
+    }
+    | multiplicative_exp '%' unary_exp {
+        int tos_type, snd_type;
+        j_get_2_tos_type(&tos_type, &snd_type);
+        if(tos_type != e_int || snd_type != e_int) {
+            fprintf(fp, "    pop\n");
+            digit_for_type *= 10;
+            digit_for_type += snd_type + 1;
+            err_num = mf;
+            strcpy(err_msg, serr_str[err_num]);
+            has_error = 1;
+        }
+        else {
+            digit_for_type *= 10;
+            digit_for_type += j_mod(tos_type, snd_type) + 1;
+        }
+    }
 ;
 
 unary_exp
@@ -662,12 +737,35 @@ expression_stat
 ;
 
 selection_stat
-    : IF '(' expression ')' statement ELSE statement
-    | IF '(' expression ')' statement %prec NO_ELSE
+    : IF '(' expression ')' statement else_stat statement {
+        --label_flag;
+        fprintf(fp, "E%d :\n", label_flag);
+    }
+    | IF '(' expression ')' statement %prec NO_ELSE {
+        --label_flag;
+        fprintf(fp, "L%d :\n", label_flag);
+    }
+;
+
+else_stat
+    : ELSE {
+        fprintf(fp, "    goto E%d\n", label_flag - 1);
+        fprintf(fp, "L%d :\n", label_flag - 1);
+    }
 ;
 
 iteration_stat
-    : WHILE '(' expression ')' statement
+    : while_stat '(' expression ')' statement {
+        fprintf(fp, "    goto W%d\n", while_label - 1);
+        fprintf(fp, "WE%d :\n", while_label - 1);
+    }
+;
+
+while_stat
+    : WHILE {
+        is_while = 1;
+        fprintf(fp, "W%d :\n", while_label);
+    }
 ;
 
 jump_stat
@@ -1047,6 +1145,14 @@ int j_mod(int tos_type, int snd_type)
         fprintf(fp, "    irem\n");
     }
     return tos_type;
+}
+
+void j_get_2_tos_type(int *tos_type, int *snd_type)
+{
+    *tos_type = digit_for_type % 10 - 1;
+    digit_for_type /= 10;
+    *snd_type = digit_for_type % 10 - 1;
+    digit_for_type /= 10;
 }
 
 
