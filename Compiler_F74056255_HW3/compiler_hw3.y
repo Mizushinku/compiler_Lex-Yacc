@@ -62,6 +62,7 @@ void j_check_cast(int, int);
 
 //Jasmin things
 char *jtype[5] = { "I", "F", "Z", "Ljava/lang/String;", "V" };
+
 int g_int = 0;
 float g_float = 0.0;
 int g_bool = 0;
@@ -69,6 +70,8 @@ char g_string[100] = {};
 
 int digit_for_type = 0;
 int has_init = 0;
+int has_inc_or_dec = 0;
+
 
 
 
@@ -283,7 +286,13 @@ initializer
 ;
 
 assigment_exp
-    : conditional_exp
+    : conditional_exp {
+        if(has_inc_or_dec) {
+            has_inc_or_dec = 0;
+            fprintf(fp, "    pop\n");
+            digit_for_type /= 10;
+        }
+    }
     | unary_exp asgn_operator assigment_exp
 ;
 
@@ -345,8 +354,52 @@ postfix_exp
     : primary_exp
     | postfix_exp '[' expression ']'
     | function_call_exp
-    | postfix_exp INC
-    | postfix_exp DEC
+    | ID INC {
+        digit_for_type *= 10;
+        ++digit_for_type;
+        int stack_num = j_lookup_symbol($1);
+
+        if(stack_num < 0) {
+            fprintf(fp, "    getstatic compiler_hw3/%s I\n", $1);
+        }
+        else {
+            fprintf(fp, "    iload %d\n", stack_num);
+        }
+
+        fprintf(fp, "    dup\n");
+        fprintf(fp, "    ldc 1\n");
+        fprintf(fp, "    iadd\n");
+        if(stack_num < 0) {
+            fprintf(fp, "    putstatic compiler_hw3/%s I\n", $1);
+        }
+        else {
+            fprintf(fp, "    istore %d\n", stack_num);
+        }
+        has_inc_or_dec  = 1;
+    }
+    | ID DEC {
+        digit_for_type *= 10;
+        ++digit_for_type;
+        int stack_num = j_lookup_symbol($1);
+
+        if(stack_num < 0) {
+            fprintf(fp, "    getstatic compiler_hw3/%s I\n", $1);
+        }
+        else {
+            fprintf(fp, "    iload %d\n", stack_num);
+        }
+
+        fprintf(fp, "    dup\n");
+        fprintf(fp, "    ldc 1\n");
+        fprintf(fp, "    isub\n");
+        if(stack_num < 0) {
+            fprintf(fp, "    putstatic compiler_hw3/%s I\n", $1);
+        }
+        else {
+            fprintf(fp, "    istore %d\n", stack_num);
+        }
+        has_inc_or_dec  = 1;
+    }
 ;
 
 function_call_exp
