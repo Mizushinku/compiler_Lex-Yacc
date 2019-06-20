@@ -63,26 +63,42 @@ int j_mul(int, int);
 int j_div(int, int);
 int j_mod(int, int);
 void j_get_2_tos_type(int *, int *);
+void j_make_label(int, int, int);
+void j_call_func(int);
 
 
 
 //Jasmin things
 char *jtype[5] = { "I", "F", "Z", "Ljava/lang/String;", "V" };
+char *jicmps[6] = {
+    "if_icmpeq",
+    "if_icmpne",
+    "if_icmpgt",
+    "if_icmplt",
+    "if_icmpge",
+    "if_icmple"
+};
+int label_stack[100] = {0};
 
 int g_int = 0;
 float g_float = 0.0;
 int g_bool = 0;
 char g_string[100] = {};
+int cur_func_type = -1;
+int call_func_info = -1;
+char cur_fname[10] = {};
 
 int digit_for_type = 0;
 int has_init = 0;
 int has_inc_or_dec = 0;
 int is_cur_zero_const = 0;
 int is_while = 0;
+int not_gen_jfile = 0;
 
 int asgn_code = -1;
-int label_flag = 0;
-int while_label = 0;
+int label_tos = -1;
+int if_label = 0;
+int while_label = 1;
 
 
 // define enum
@@ -418,41 +434,27 @@ logical_and_exp
 equality_exp
     : relational_exp
     | equality_exp EQ relational_exp {
-        int tos_type, snd_type;
-        j_get_2_tos_type(&tos_type, &snd_type);
-        char mark[8] = {};
-        int cnt;
-        if(is_while) {
-            strcpy(mark, "WE");
-            cnt = while_label;
-        }
-        else {
-            strcpy(mark, "L");
-            cnt = label_flag;
-        }
-        if(tos_type == e_float) {
-            fprintf(fp, "    fcmpl\n");
-            fprintf(fp, "    ifne %s%d\n", mark, cnt);
-        }
-        else {
-            fprintf(fp, "    if_icmpne %s%d\n", mark, cnt);
-        }
-        if(is_while) {
-            is_while = 0;
-            ++while_label;
-        } else {
-            ++label_flag;
-        }
+        j_make_label(0, 1, 1);
     }
-    | equality_exp NE relational_exp
+    | equality_exp NE relational_exp {
+        j_make_label(0, 0, 0);
+    }
 ;
 
 relational_exp
     : additive_exp
-    | relational_exp MT additive_exp
-    | relational_exp LT additive_exp
-    | relational_exp MTE additive_exp
-    | relational_exp LTE additive_exp
+    | relational_exp MT additive_exp {
+        j_make_label(1, 1, 5);
+    }
+    | relational_exp LT additive_exp {
+        j_make_label(-1, 1, 4);
+    }
+    | relational_exp MTE additive_exp {
+        j_make_label(-1, 0, 3);
+    }
+    | relational_exp LTE additive_exp {
+        j_make_label(1, 0, 2);
+    }
 ;
 
 additive_exp
@@ -579,14 +581,19 @@ postfix_exp
 ;
 
 function_call_exp
-    : function_ID '(' ')'
-    | function_ID '(' argument_exp_list ')'
+    : function_ID '(' ')' {
+        j_call_func(call_func_info);
+    }
+    | function_ID '(' argument_exp_list ')' {
+        j_call_func(call_func_info);
+    }
 ;
 
 function_ID
     : ID {
         if(has_error == 0) {
-            int id_type = lookup_symbol_by_name($1, 2);
+            call_func_info = lookup_symbol_by_name($1, 2);
+            strcpy(cur_fname, $1);
         }
     }
 ;
@@ -628,66 +635,76 @@ expression
 
 constant
     : I_CONST {
-        if(scope == 0) {
-            if(type_num == e_float) {
-                g_float = (float)$1;
+        if(has_error == 0) {
+            if(scope == 0) {
+                if(type_num == e_float) {
+                    g_float = (float)$1;
+                }
+                else {
+                    g_int = $1;
+                }
             }
             else {
-                g_int = $1;
-            }
-        }
-        else {
-            fprintf(fp, "    ldc %d\n", $1);
-            digit_for_type *= 10;
-            digit_for_type += 1;
-            if($1 == 0) {
-                is_cur_zero_const = 1;
-            } else {
-                is_cur_zero_const = 0;
+                fprintf(fp, "    ldc %d\n", $1);
+                digit_for_type *= 10;
+                digit_for_type += 1;
+                if($1 == 0) {
+                    is_cur_zero_const = 1;
+                } else {
+                    is_cur_zero_const = 0;
+                }
             }
         }
     }
     | F_CONST {
-        if(scope == 0) {
-            if(type_num == e_int) {
-                g_int = (int)$1;
+        if(has_error == 0) {
+            if(scope == 0) {
+                if(type_num == e_int) {
+                    g_int = (int)$1;
+                }
+                else {
+                    g_float = $1;
+                }
             }
             else {
-                g_float = $1;
+                fprintf(fp, "    ldc %f\n", $1);
+                digit_for_type *= 10;
+                digit_for_type += 2;
+                is_cur_zero_const = 0;
             }
-        }
-        else {
-            fprintf(fp, "    ldc %f\n", $1);
-            digit_for_type *= 10;
-            digit_for_type += 2;
-            is_cur_zero_const = 0;
         }
     }
     | STRING_CONST {
-        if(scope == 0) strcpy(g_string, $1);
-        else {
-            fprintf(fp, "    ldc \"%s\"\n", $1);
-            digit_for_type *= 10;
-            digit_for_type += 4;
-            is_cur_zero_const = 0;
+        if(has_error == 0) {
+            if(scope == 0) strcpy(g_string, $1);
+            else {
+                fprintf(fp, "    ldc \"%s\"\n", $1);
+                digit_for_type *= 10;
+                digit_for_type += 4;
+                is_cur_zero_const = 0;
+            }
         }
     }
     | TRUE {
-        if(scope == 0) g_bool = 1;
-        else {
-            fprintf(fp, "    ldc 1\n");
-            digit_for_type *= 10;
-            digit_for_type += 3;
-            is_cur_zero_const = 0;
+        if(has_error == 0) {
+            if(scope == 0) g_bool = 1;
+            else {
+                fprintf(fp, "    ldc 1\n");
+                digit_for_type *= 10;
+                digit_for_type += 3;
+                is_cur_zero_const = 0;
+            }
         }
     }
     | FALSE {
-        if(scope == 0) g_bool = 0;
-        else {
-            fprintf(fp, "    ldc 0\n");
-            digit_for_type *= 10;
-            digit_for_type += 3;
-            is_cur_zero_const = 0;
+        if(has_error == 0) {
+            if(scope == 0) g_bool = 0;
+            else {
+                fprintf(fp, "    ldc 0\n");
+                digit_for_type *= 10;
+                digit_for_type += 3;
+                is_cur_zero_const = 0;
+            }
         }
     }
 ;
@@ -737,20 +754,32 @@ expression_stat
 ;
 
 selection_stat
-    : IF '(' expression ')' statement else_stat statement {
-        --label_flag;
-        fprintf(fp, "E%d :\n", label_flag);
+    : if_stat '(' expression ')' statement else_stat statement {
+        fprintf(fp, "E%d :\n", label_stack[label_tos]);
+        label_stack[label_tos] = 0;
+        --label_tos;
     }
-    | IF '(' expression ')' statement %prec NO_ELSE {
-        --label_flag;
-        fprintf(fp, "L%d :\n", label_flag);
+    | if_stat '(' expression ')' statement %prec NO_ELSE {
+        fprintf(fp, "L%d :\n", label_stack[label_tos]);
+        label_stack[label_tos] = 0;
+        --label_tos;
+    }
+;
+
+if_stat
+    : IF {
+        if(label_tos <= 100) {
+            ++label_tos;
+            ++if_label;
+            label_stack[label_tos] = if_label;
+        }
     }
 ;
 
 else_stat
     : ELSE {
-        fprintf(fp, "    goto E%d\n", label_flag - 1);
-        fprintf(fp, "L%d :\n", label_flag - 1);
+        fprintf(fp, "    goto E%d\n", label_stack[label_tos]);
+        fprintf(fp, "L%d :\n", label_stack[label_tos]);
     }
 ;
 
@@ -765,12 +794,21 @@ while_stat
     : WHILE {
         is_while = 1;
         fprintf(fp, "W%d :\n", while_label);
+        ++while_label;
     }
 ;
 
 jump_stat
     : RET SEMICOLON { fprintf(fp, "    return\n"); }
-    | RET expression SEMICOLON
+    | RET expression SEMICOLON {
+        int tos_type = digit_for_type % 10 - 1;
+        if(tos_type == e_float) {
+            fprintf(fp, "    freturn\n");
+        }
+        else {
+            fprintf(fp, "    ireturn\n");
+        }
+    }
 ;
 
 print_stat
@@ -800,10 +838,9 @@ int main(int argc, char** argv)
 
     fclose(fp);
 
-    printf("\ndigit_for_type = %d\n", digit_for_type);
-    printf("has_init = %d\n", has_init);
-    printf("has_inc_or_dec = %d\n\n", has_inc_or_dec);
-
+    if(not_gen_jfile) {
+        remove(FNAME);
+    }
 
     return 0;
 }
@@ -818,6 +855,7 @@ void yyerror(char *s)
     memset(err_msg, 0, 50);
     err_num = init_errno;
     has_error = 0;
+    not_gen_jfile = 1;
 }
 
 void create_symbol(int target, int mod)
@@ -901,17 +939,46 @@ int lookup_symbol(ste_t *ste)
 }
 
 int lookup_symbol_by_name(char *sid, int mod) {
-    for(int i = scope; i >= 0; --i) {
-        ste_t *it = table_heads[i];
+    if(mod == 2) {
+        int result = 0;
+        ste_t *it = table_heads[0];
         while(it != NULL) {
-            if(strcmp(sid, it->name) == 0) {
-                for(int j = 0; j < 5; ++j) {
-                    if(strcmp(it->type, type_str[j]) == 0) {
-                        return j;
+            if(strcmp(it->name, sid) == 0) {
+                for(int i = 0; i < 5; ++i) {
+                    if(strcmp(it->type, type_str[i]) == 0) {
+                        result = i + 1;
                     }
                 }
+                char attr[30];
+                strcpy(attr, it->attribute);
+                char *token = strtok(attr, ", ");
+                while(token != NULL) {
+                    for(int i = 0; i < 5; ++i) {
+                        if(strcmp(token, type_str[i]) == 0) {
+                            result *= 10;
+                            result += i + 1;
+                        }
+                    }
+                    token = strtok(NULL, ", ");
+                }
+                return result;
             }
             it = it->next;
+        }
+    }
+    else {
+        for(int i = scope; i >= 0; --i) {
+            ste_t *it = table_heads[i];
+            while(it != NULL) {
+                if(strcmp(sid, it->name) == 0) {
+                    for(int j = 0; j < 5; ++j) {
+                        if(strcmp(it->type, type_str[j]) == 0) {
+                            return j;
+                        }
+                    }
+                }
+                it = it->next;
+            }
         }
     }
     has_error = 1;
@@ -1053,6 +1120,7 @@ void j_func_def()
             for(int i = 0; i < 5; ++i) {
                 if(strcmp(it->type, type_str[i]) == 0) {
                     strcat(j_func_type, jtype[i]);
+                    cur_func_type = i;
                     break;
                 }
             }
@@ -1153,6 +1221,53 @@ void j_get_2_tos_type(int *tos_type, int *snd_type)
     digit_for_type /= 10;
     *snd_type = digit_for_type % 10 - 1;
     digit_for_type /= 10;
+}
+
+void j_make_label(int cmp, int fc, int ic)
+{
+    int tos_type, snd_type;
+    j_get_2_tos_type(&tos_type, &snd_type);
+    char mark[8] = {};
+    int cnt;
+    if(is_while) {
+        strcpy(mark, "WE");
+        cnt = while_label - 1;
+        is_while = 0;
+    }
+    else {
+        strcpy(mark, "L");
+        cnt = label_stack[label_tos];
+    }
+    if(tos_type == e_float) {
+        fprintf(fp, "    fcmpl\n");
+        fprintf(fp, "    ldc %d\n", cmp);
+        fprintf(fp, "    %s %s%d\n", jicmps[fc], mark, cnt);
+    }
+    else {
+        fprintf(fp, "    %s %s%d\n", jicmps[ic], mark, cnt);
+    }
+}
+
+void j_call_func(int info)
+{
+    if(has_error) return;
+    fprintf(fp, "    invokestatic compiler_hw3/%s", cur_fname);
+    int param_stack[10] = {0};
+    int i = -1;
+    while(info >= 10) {
+        ++i;
+        param_stack[i] = info % 10 - 1;
+        info /= 10;
+    }
+    int rnt_type = info % 10 - 1;
+
+    fprintf(fp, "(");
+    for( ; i >= 0; --i) {
+        fprintf(fp, "%s", jtype[param_stack[i]]);
+        digit_for_type /= 10;
+    }
+    fprintf(fp, ")%s\n", jtype[rnt_type]);
+
 }
 
 
